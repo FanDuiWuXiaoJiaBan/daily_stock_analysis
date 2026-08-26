@@ -155,3 +155,35 @@ def test_manager_records_failed_chip_attempt_and_falls_back_to_next_fetcher():
         "provider_run_started",
         "provider_run",
     ]
+
+
+def test_manager_prefers_tushare_for_chip_distribution_regardless_of_global_priority():
+    """Tushare should be tried before AkShare for the chip capability only."""
+    get_chip_circuit_breaker().reset()
+    tushare_chip = ChipDistribution(
+        code="600519",
+        profit_ratio=0.61,
+        avg_cost=12.3,
+        concentration_90=0.13,
+    )
+    tushare_fetcher = _ChipFetcher("TushareFetcher", 10, tushare_chip)
+    # The manager constructor sorts by priority, so AkShare is initially first.
+    akshare_fetcher = _ChipFetcher(
+        "AkshareFetcher",
+        0,
+        ChipDistribution(
+            code="600519",
+            profit_ratio=0.50,
+            avg_cost=11.0,
+            concentration_90=0.20,
+        ),
+    )
+    manager = DataFetcherManager(fetchers=[akshare_fetcher, tushare_fetcher])
+
+    chip, diagnostics, _ = _run_with_chip_diagnostics(manager)
+
+    assert chip is tushare_chip
+    assert tushare_fetcher.calls == 1
+    assert akshare_fetcher.calls == 0
+    assert diagnostics is not None
+    assert diagnostics["provider_runs"][0]["provider"] == "TushareFetcher"
